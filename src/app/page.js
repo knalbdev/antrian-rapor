@@ -26,18 +26,22 @@ export default function AppRapor() {
   const [progressSiswa, setProgressSiswa] = useState({}); 
   const [selectedSiswa, setSelectedSiswa] = useState("");
 
-  // Ref untuk melacak status sebelumnya (agar suara tidak loop)
-  const prevActiveRef = useRef({ nama: "-", status: "idle" });
+  // Ref untuk melacak status sebelumnya agar suara tidak spam saat re-connect
+  const prevDataRef = useRef({ nama: "-", status: "idle" });
 
   // --- LOGIC 1: AUTO-RESTORE ---
   useEffect(() => {
-    const savedRole = localStorage.getItem("rapor_role");
-    const savedJenjang = localStorage.getItem("rapor_jenjang");
-    const savedKelas = localStorage.getItem("rapor_kelas");
+    try {
+        const savedRole = localStorage.getItem("rapor_role");
+        const savedJenjang = localStorage.getItem("rapor_jenjang");
+        const savedKelas = localStorage.getItem("rapor_kelas");
 
-    if (savedRole) setRole(savedRole);
-    if (savedJenjang) setJenjang(savedJenjang);
-    if (savedKelas) setKelas(savedKelas);
+        if (savedRole) setRole(savedRole);
+        if (savedJenjang) setJenjang(savedJenjang);
+        if (savedKelas) setKelas(savedKelas);
+    } catch (e) {
+        console.error("Storage error", e);
+    }
     setLoading(false);
   }, []);
 
@@ -60,7 +64,7 @@ export default function AppRapor() {
     setKelas("");
   };
 
-  // --- LOGIC 2: Realtime Database Listener ---
+  // --- LOGIC 2: REALTIME LISTENER & NOTIFIKASI ---
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission !== "granted") {
       Notification.requestPermission();
@@ -72,7 +76,25 @@ export default function AppRapor() {
     const unsubscribe = onValue(dbRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (data.active) setActiveCall(data.active);
+        // 1. Update Layar
+        if (data.active) {
+            setActiveCall(data.active);
+            
+            // LOGIC SUARA & GETAR (Hanya untuk ORTU)
+            if (role === "ORTU") {
+                const isNewData = data.active.nama !== prevDataRef.current.nama || data.active.status !== prevDataRef.current.status;
+                const isRealName = data.active.nama !== "-" && !data.active.nama.includes("MENUNGGU"); // Jangan baca kalau status Menunggu
+
+                if (isNewData && isRealName) {
+                    // Simpan data baru ke ref
+                    prevDataRef.current = data.active;
+
+                    // Jalankan efek
+                    triggerEffect(data.active.nama, data.active.status, data.active.pos);
+                }
+            }
+        }
+        // 2. Update Progress
         if (data.progress) setProgressSiswa(data.progress);
       } else {
         setActiveCall({ nama: "Belum Dimulai", pos: "-", status: "idle" });
@@ -80,65 +102,82 @@ export default function AppRapor() {
       }
     });
     return () => unsubscribe();
-  }, [jenjang, kelas]);
+  }, [jenjang, kelas, role]); 
 
-  // --- LOGIC 3: TRIGGER SUARA & GETAR (FIXED) ---
-  // Effect ini terpisah, khusus memantau perubahan 'activeCall'
-  useEffect(() => {
-    // Hanya jalankan jika role adalah ORTU dan data valid
-    if (role === "ORTU" && activeCall.nama !== "-" && activeCall.status !== "idle") {
-        
-        // Cek apakah data BERBEDA dengan sebelumnya (biar ga bunyi terus menerus)
-        const isNameChanged = activeCall.nama !== prevActiveRef.current.nama;
-        const isStatusChanged = activeCall.status !== prevActiveRef.current.status;
-
-        if (isNameChanged || isStatusChanged) {
-            triggerNotificationEffect(activeCall.nama, activeCall.status, activeCall.pos);
+  // --- HELPER: AUDIO & GETAR (AMAN DARI CRASH) ---
+  const triggerEffect = (name, status, pos) => {
+    try {
+        // A. Jika Layar Aktif -> Langsung Bunyi & Getar
+        if (!document.hidden) {
+            // Getar
+            if (typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate([500, 200, 500]);
+            }
+            // Suara
+            if (typeof window !== "undefined" && 'speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); 
+                const text = status === 'bersiap' 
+                    ? `Mohon perhatian. Ananda ${name}, harap bersiap.` 
+                    : `Panggilan untuk Ananda ${name}, silakan masuk.`;
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'id-ID'; u.rate = 0.9;
+                window.speechSynthesis.speak(u);
+            }
+        } 
+        // B. Jika Layar Mati/Background -> Kirim Notifikasi Sistem
+        else if (Notification.permission === "granted") {
+            const title = status === 'bersiap' ? "⚠️ PERSIAPAN!" : "📢 MASUK SEKARANG!";
+            const body = `Giliran: ${name}`;
+            const notif = new Notification(title, { body, icon: "/icon.png", tag: "antrian" });
+            
+            // Kalau notif diklik, buka web dan ngomong ulang
+            notif.onclick = () => {
+                window.focus();
+                if (typeof window !== "undefined" && 'speechSynthesis' in window) {
+                     const text = `Giliran Ananda ${name}`;
+                     const u = new SpeechSynthesisUtterance(text);
+                     u.lang = 'id-ID';
+                     window.speechSynthesis.speak(u);
+                }
+            };
         }
-    }
-    // Update ref ke data sekarang
-    prevActiveRef.current = activeCall;
-  }, [activeCall, role]);
-
-  const triggerNotificationEffect = (name, status, pos) => {
-    // 1. GETAR (Vibration)
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-        navigator.vibrate([500, 300, 500]); // Getar panjang-pendek-panjang
-    }
-
-    // 2. SUARA (Text to Speech)
-    if (typeof window !== "undefined" && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Matikan suara sebelumnya
-        
-        const text = status === 'bersiap' 
-            ? `Mohon perhatian. Ananda ${name}, harap bersiap di ${pos}.` 
-            : `Panggilan untuk Ananda ${name}, silakan masuk ke ${pos}.`;
-        
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'id-ID'; 
-        utterance.rate = 0.9;
-        utterance.volume = 1;
-        window.speechSynthesis.speak(utterance);
-    }
-
-    // 3. POP-UP NOTIFIKASI (Jika layar mati)
-    if (document.hidden && Notification.permission === "granted") {
-        const title = status === 'bersiap' ? "⚠️ PERSIAPAN!" : "📢 MASUK SEKARANG!";
-        const body = `Giliran: ${name}`;
-        new Notification(title, { body, icon: "/icon.png", tag: "antrian-sekolah" });
+    } catch (err) {
+        console.log("Audio/Vibrate blocked by browser:", err);
     }
   };
 
-  // --- ACTIONS GURU ---
-  const updateActiveScreen = (nama, pos, status) => update(ref(db), { [`sekolah/${jenjang}/${kelas}/active`]: { nama, pos, status } });
+  // --- ACTIONS GURU (DENGAN PERBAIKAN CRASH FIREBASE) ---
+  const updateActiveScreen = (nama, pos, status) => {
+    update(ref(db), { [`sekolah/${jenjang}/${kelas}/active`]: { nama, pos, status } });
+  };
+
   const btnSekolahBersiap = () => { if (!selectedSiswa) return alert("Pilih siswa!"); updateActiveScreen(selectedSiswa, "SEKOLAH", "bersiap"); };
   const btnSekolahMasuk = () => { if (!selectedSiswa && activeCall.nama ==='-') return alert("Pilih siswa!"); updateActiveScreen(selectedSiswa || activeCall.nama, "SEKOLAH", "masuk"); };
+  
+  // FIX: MENCEGAH CRASH KARNA TITIK DI "MENUNGGU..."
   const btnSekolahSelesai = () => {
-    if(activeCall.nama === '-' || activeCall.nama === 'MENUNGGU...') return;
-    const nextStatus = progressSiswa[activeCall.nama] === 'done_asrama' ? 'selesai_total' : 'done_sekolah';
-    update(ref(db), { [`sekolah/${jenjang}/${kelas}/active`]: { nama: "MENUNGGU...", pos: "TRANSISI", status: "idle" }, [`sekolah/${jenjang}/${kelas}/progress/${activeCall.nama}`]: nextStatus });
+    const namaSiswa = activeCall.nama;
+    
+    // VALIDASI PENTING: Jangan simpan jika nama kosong atau berisi "MENUNGGU..."
+    // Ini mencegah error "Invalid Key" di Firebase
+    if (!namaSiswa || namaSiswa === '-' || namaSiswa.includes("MENUNGGU")) {
+        return; 
+    }
+
+    const currentStatus = progressSiswa[namaSiswa];
+    let nextStatus = currentStatus === 'done_asrama' ? 'selesai_total' : 'done_sekolah';
+
+    const updates = {};
+    // Reset layar jadi MENUNGGU... (ini aman karena masuk ke 'active', bukan jadi key)
+    updates[`sekolah/${jenjang}/${kelas}/active`] = { nama: "MENUNGGU...", pos: "TRANSISI", status: "idle" };
+    
+    // Simpan progress siswa (Nama siswa wajib valid, tidak boleh ada titik)
+    updates[`sekolah/${jenjang}/${kelas}/progress/${namaSiswa}`] = nextStatus;
+
+    update(ref(db), updates).catch(err => alert("Gagal update: " + err.message));
     setSelectedSiswa("");
   };
+
   const btnAsramaCeklis = () => {
     if (!selectedSiswa) return alert("Pilih siswa!");
     const nextStatus = progressSiswa[selectedSiswa] === 'done_sekolah' ? 'selesai_total' : 'done_asrama';
@@ -314,7 +353,7 @@ function MenuAwal({ setRole, saveState }) {
         </div>
         <button onClick={() => handleMenuClick("MONITOR")} className="flex items-center justify-center gap-3 p-4 bg-slate-800 text-slate-200 rounded-2xl font-bold text-sm hover:bg-slate-900 transition shadow-lg"><span>📊</span> Lihat Rekapitulasi Data</button>
       </div>
-      <p className="mt-12 text-xs text-slate-300 font-medium">v3.3 • Audio Fix & UI Fix</p>
+      <p className="mt-12 text-xs text-slate-300 font-medium">v3.4 • Crash Fix & UI Contrast</p>
     </div>
   );
 }
@@ -359,11 +398,11 @@ function MenuKelas({ setJenjang, setKelas, setRole, saveState, handleMenuUtama }
 function TampilanOrtu({ activeCall, jenjang, kelas, handleGantiKelas, handleMenuUtama }) {
   let bgClass = "bg-slate-50"; let cardClass = "bg-white border-slate-100"; let textClass = "text-slate-800"; let statusBadge = "bg-slate-100 text-slate-400"; let labelStatus = "MENUNGGU"; let subText = "Silakan duduk menunggu giliran Anda";
   
-  // FIX: STYLE TOMBOL DINAMIS (IDLE vs COLOR)
+  // LOGIC WARNA TOMBOL
   const isIdle = activeCall.status === 'idle';
   const btnStyle = isIdle 
-    ? "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 shadow-sm" // Style Dark (untuk background putih)
-    : "bg-white/20 text-white border border-white/20 hover:bg-white/30 backdrop-blur-md shadow-sm"; // Style Light Glass (untuk background warna)
+    ? "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 shadow-md" 
+    : "bg-white/20 text-white border border-white/20 hover:bg-white/30 backdrop-blur-md shadow-sm";
 
   if (activeCall.status === "bersiap") {
     bgClass = "bg-amber-400"; 
@@ -377,7 +416,6 @@ function TampilanOrtu({ activeCall, jenjang, kelas, handleGantiKelas, handleMenu
     <div className={`min-h-screen flex flex-col p-4 transition-colors duration-700 font-sans ${bgClass}`}>
       <div className="w-full max-w-xl mx-auto flex justify-between items-start z-20 mb-4">
         <div className="flex flex-wrap gap-2">
-            {/* Menggunakan variable btnStyle agar warna menyesuaikan background */}
             <button onClick={handleGantiKelas} className={`text-xs px-4 py-2 rounded-full font-bold transition ${btnStyle}`}>← Ganti Kelas</button>
             <button onClick={handleMenuUtama} className={`text-xs px-4 py-2 rounded-full font-bold transition ${btnStyle} ${isIdle ? 'text-red-500 border-red-100 hover:bg-red-50' : 'text-red-100 hover:bg-red-500/40'}`}>🏠 Menu</button>
         </div>
