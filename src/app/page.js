@@ -520,7 +520,7 @@ function MenuAwal({ setRole, saveState }) {
         </div>
         <button onClick={() => handleMenuClick("MONITOR")} className="flex items-center justify-center gap-3 p-4 bg-slate-800 text-slate-200 rounded-2xl font-bold text-sm hover:bg-slate-900 transition shadow-lg"><span>📊</span> Lihat Rekapitulasi Data</button>
       </div>
-      <p className="mt-12 text-xs text-slate-300 font-medium">v3.4 • Crash Fix & UI Contrast</p>
+      <p className="mt-12 text-xs text-slate-300 font-medium">v3.4 • IDN Boarding School Akhwat</p>
     </div>
   );
 }
