@@ -549,10 +549,16 @@ function MenuKelas({ setJenjang, setKelas, setRole, saveState, handleMenuUtama }
                  <div className="relative">
                     <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none" onChange={(e) => pilihKelas(e.target.value)}>
                         <option value="">-- Pilih Kelas --</option>
-                        <option value="Kelas 7A">Kelas 7A</option>
-                        <option value="Kelas 7B">Kelas 7B</option>
+                        <option value="Kelas 7A">7A</option>
+                        <option value="Kelas 7B">7B</option>
+                        <option value="Kelas 8A">8A</option>
+                        <option value="Kelas 8B">8B</option>
+                        <option value="Kelas 9A">9A</option>
+                        <option value="Kelas 9B">9B</option>
                         <option value="10 RPL">10 RPL</option>
-                        <option value="10 TKJ">10 TKJ</option>
+                        <option value="10 DKV">10 DKV</option>
+                        <option value="11 RPL">11 RPL</option>
+                        <option value="11 DKV">11 DKV</option>
                     </select>
                  </div>
             </div>
