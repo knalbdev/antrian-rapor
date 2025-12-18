@@ -42,9 +42,7 @@ export default function AppRapor() {
     localStorage.setItem(key, value);
   };
 
-  // --- FUNGSI NAVIGASI (BACK BUTTONS) ---
-  
-  // 1. Back to Pilih Kelas (Role tetap)
+  // --- FUNGSI NAVIGASI ---
   const handleGantiKelas = () => {
     localStorage.removeItem("rapor_jenjang");
     localStorage.removeItem("rapor_kelas");
@@ -52,7 +50,6 @@ export default function AppRapor() {
     setKelas("");
   };
 
-  // 2. Back to Menu Awal (Logout Role)
   const handleMenuUtama = () => {
     localStorage.clear();
     setRole(null);
@@ -142,7 +139,6 @@ export default function AppRapor() {
 
   // --- RENDER ---
   if (!role) return <MenuAwal setRole={setRole} saveState={saveState} />;
-  // Pass handleMenuUtama to MenuKelas
   if (!jenjang || !kelas) return <MenuKelas setJenjang={setJenjang} setKelas={setKelas} setRole={setRole} saveState={saveState} handleMenuUtama={handleMenuUtama} />;
 
   // 1. MONITOR VIEW
@@ -330,8 +326,10 @@ function MenuKelas({ setJenjang, setKelas, setRole, saveState, handleMenuUtama }
                  <div className="relative">
                     <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none" onChange={(e) => pilihKelas(e.target.value)}>
                         <option value="">-- Pilih Kelas --</option>
-                        <option value="Kelas 7A">Kelas 7A</option><option value="Kelas 7B">Kelas 7B</option>
-                        <option value="10 RPL">10 RPL</option><option value="10 TKJ">10 TKJ</option>
+                        <option value="Kelas 7A">Kelas 7A</option>
+                        <option value="Kelas 7B">Kelas 7B</option>
+                        <option value="10 RPL">10 RPL</option>
+                        <option value="10 TKJ">10 TKJ</option>
                     </select>
                  </div>
             </div>
@@ -341,6 +339,7 @@ function MenuKelas({ setJenjang, setKelas, setRole, saveState, handleMenuUtama }
   );
 }
 
+// --- FIX: BUTTON MENUMPUK DI SINI ---
 function TampilanOrtu({ activeCall, jenjang, kelas, handleGantiKelas, handleMenuUtama }) {
   let bgClass = "bg-slate-50"; let cardClass = "bg-white border-slate-100"; let textClass = "text-slate-800"; let statusBadge = "bg-slate-100 text-slate-400"; let labelStatus = "MENUNGGU"; let subText = "Silakan duduk menunggu giliran Anda";
 
@@ -353,22 +352,39 @@ function TampilanOrtu({ activeCall, jenjang, kelas, handleGantiKelas, handleMenu
   }
 
   return (
-    <div className={`min-h-screen flex flex-col items-center justify-center p-6 transition-colors duration-700 font-sans ${bgClass}`}>
-      {/* Header Navigasi Ortu */}
-      <div className="absolute top-6 left-6 flex gap-2 z-20">
-        <button onClick={handleGantiKelas} className="text-xs bg-white/20 backdrop-blur-md px-4 py-2 rounded-full text-white/90 hover:bg-white/30 font-bold transition shadow-sm border border-white/10">← Ganti Kelas</button>
-        <button onClick={handleMenuUtama} className="text-xs bg-red-500/20 backdrop-blur-md px-4 py-2 rounded-full text-red-100 hover:bg-red-500/40 font-bold transition shadow-sm border border-white/10">🏠 Menu Utama</button>
-      </div>
+    // FIX: Hapus absolute, ganti jadi flex-col dengan header terpisah di atas
+    <div className={`min-h-screen flex flex-col p-4 transition-colors duration-700 font-sans ${bgClass}`}>
       
-      {activeCall.status !== 'idle' && (<div className="absolute top-0 left-1/2 -translate-x-1/2 mt-8"><span className="bg-black/20 backdrop-blur-md text-white/90 px-6 py-2 rounded-full text-sm font-bold tracking-widest uppercase shadow-lg border border-white/10">Panggilan Sekolah</span></div>)}
-      <div className="text-center w-full max-w-xl">
-        <h2 className={`text-sm font-bold mb-8 uppercase tracking-[0.3em] opacity-80 ${activeCall.status === 'idle' ? 'text-slate-400' : 'text-white'}`}>Antrian {jenjang} • {kelas}</h2>
-        <div className={`p-12 rounded-[2.5rem] transition-all duration-500 ${cardClass} ${activeCall.status === 'idle' ? 'shadow-xl shadow-slate-200' : ''}`}>
-          <p className="text-slate-400 text-xs font-bold mb-4 uppercase tracking-widest">Giliran Siswa:</p>
-          <h1 className={`text-5xl md:text-7xl font-black mb-8 leading-tight break-words tracking-tight ${textClass}`}>{activeCall.nama}</h1>
-          <div className={`px-8 py-4 rounded-2xl font-extrabold text-2xl inline-block ${statusBadge}`}>{labelStatus}</div>
+      {/* Header Navigasi (Relatif, tidak menumpuk) */}
+      <div className="w-full max-w-xl mx-auto flex justify-between items-start z-20 mb-4">
+        <div className="flex flex-wrap gap-2">
+            <button onClick={handleGantiKelas} className="text-xs bg-white/20 backdrop-blur-md px-4 py-2 rounded-full text-white/90 hover:bg-white/30 font-bold transition shadow-sm border border-white/10">← Ganti Kelas</button>
+            <button onClick={handleMenuUtama} className="text-xs bg-red-500/20 backdrop-blur-md px-4 py-2 rounded-full text-red-100 hover:bg-red-500/40 font-bold transition shadow-sm border border-white/10">🏠 Menu</button>
         </div>
-        <p className={`mt-10 text-xl font-medium ${activeCall.status === 'idle' ? 'text-slate-400' : 'text-white/90'}`}>{subText}</p>
+      </div>
+
+      {/* Konten Utama (Centered) */}
+      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-xl mx-auto -mt-10">
+          
+          {/* Badge Panggilan Sekolah */}
+          {activeCall.status !== 'idle' && (
+             <div className="mb-8">
+                <span className="bg-black/20 backdrop-blur-md text-white/90 px-6 py-2 rounded-full text-sm font-bold tracking-widest uppercase shadow-lg border border-white/10">
+                    Panggilan Sekolah
+                </span>
+             </div>
+          )}
+
+          <h2 className={`text-sm font-bold mb-8 uppercase tracking-[0.3em] opacity-80 ${activeCall.status === 'idle' ? 'text-slate-400' : 'text-white'}`}>
+            Antrian {jenjang} • {kelas}
+          </h2>
+          
+          <div className={`p-12 rounded-[2.5rem] w-full transition-all duration-500 text-center ${cardClass} ${activeCall.status === 'idle' ? 'shadow-xl shadow-slate-200' : ''}`}>
+            <p className="text-slate-400 text-xs font-bold mb-4 uppercase tracking-widest">Giliran Siswa:</p>
+            <h1 className={`text-5xl md:text-7xl font-black mb-8 leading-tight break-words tracking-tight ${textClass}`}>{activeCall.nama}</h1>
+            <div className={`px-8 py-4 rounded-2xl font-extrabold text-2xl inline-block ${statusBadge}`}>{labelStatus}</div>
+          </div>
+          <p className={`mt-10 text-xl font-medium text-center ${activeCall.status === 'idle' ? 'text-slate-400' : 'text-white/90'}`}>{subText}</p>
       </div>
     </div>
   );
