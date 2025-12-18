@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "@/lib/firebase";
 import { ref, onValue, update } from "firebase/database";
 
@@ -25,6 +25,9 @@ export default function AppRapor() {
   const [activeCall, setActiveCall] = useState({ nama: "-", pos: "-", status: "idle" });
   const [progressSiswa, setProgressSiswa] = useState({}); 
   const [selectedSiswa, setSelectedSiswa] = useState("");
+
+  // Ref untuk melacak status sebelumnya (agar suara tidak loop)
+  const prevActiveRef = useRef({ nama: "-", status: "idle" });
 
   // --- LOGIC 1: AUTO-RESTORE ---
   useEffect(() => {
@@ -57,7 +60,7 @@ export default function AppRapor() {
     setKelas("");
   };
 
-  // --- LOGIC 2: Realtime & Effects ---
+  // --- LOGIC 2: Realtime Database Listener ---
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission !== "granted") {
       Notification.requestPermission();
@@ -69,28 +72,7 @@ export default function AppRapor() {
     const unsubscribe = onValue(dbRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (data.active) {
-            const newStatus = data.active.status;
-            const newName = data.active.nama;
-            const currentName = activeCall.nama;
-            const currentStatus = activeCall.status;
-            
-            if (newStatus !== "idle" && newName !== "-" && role === "ORTU") {
-                if (newName !== currentName || newStatus !== currentStatus) {
-                     if (!document.hidden) {
-                        triggerVibrateAndAudio(newName, newStatus);
-                     } else {
-                        const title = newStatus === 'bersiap' ? "⚠️ PERSIAPAN!" : "📢 SILAKAN MASUK!";
-                        const body = newStatus === 'bersiap' ? `Ananda ${newName} harap bersiap.` : `Giliran Ananda ${newName} masuk!`;
-                        if (Notification.permission === "granted") {
-                           const notif = new Notification(title, { body: body, icon: "/icon.png" });
-                           notif.onclick = () => { window.focus(); triggerVibrateAndAudio(newName, newStatus); notif.close(); };
-                        }
-                     }
-                }
-            }
-            setActiveCall(data.active);
-        }
+        if (data.active) setActiveCall(data.active);
         if (data.progress) setProgressSiswa(data.progress);
       } else {
         setActiveCall({ nama: "Belum Dimulai", pos: "-", status: "idle" });
@@ -98,16 +80,52 @@ export default function AppRapor() {
       }
     });
     return () => unsubscribe();
-  }, [jenjang, kelas, role, activeCall]);
+  }, [jenjang, kelas]);
 
-  const triggerVibrateAndAudio = (name, status) => {
-    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([500, 200, 500]);
+  // --- LOGIC 3: TRIGGER SUARA & GETAR (FIXED) ---
+  // Effect ini terpisah, khusus memantau perubahan 'activeCall'
+  useEffect(() => {
+    // Hanya jalankan jika role adalah ORTU dan data valid
+    if (role === "ORTU" && activeCall.nama !== "-" && activeCall.status !== "idle") {
+        
+        // Cek apakah data BERBEDA dengan sebelumnya (biar ga bunyi terus menerus)
+        const isNameChanged = activeCall.nama !== prevActiveRef.current.nama;
+        const isStatusChanged = activeCall.status !== prevActiveRef.current.status;
+
+        if (isNameChanged || isStatusChanged) {
+            triggerNotificationEffect(activeCall.nama, activeCall.status, activeCall.pos);
+        }
+    }
+    // Update ref ke data sekarang
+    prevActiveRef.current = activeCall;
+  }, [activeCall, role]);
+
+  const triggerNotificationEffect = (name, status, pos) => {
+    // 1. GETAR (Vibration)
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate([500, 300, 500]); // Getar panjang-pendek-panjang
+    }
+
+    // 2. SUARA (Text to Speech)
     if (typeof window !== "undefined" && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); 
-        const text = status === 'bersiap' ? `Mohon perhatian. Ananda ${name}, harap bersiap.` : `Panggilan untuk Ananda ${name}, silakan masuk.`;
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'id-ID'; u.rate = 0.9;
-        window.speechSynthesis.speak(u);
+        window.speechSynthesis.cancel(); // Matikan suara sebelumnya
+        
+        const text = status === 'bersiap' 
+            ? `Mohon perhatian. Ananda ${name}, harap bersiap di ${pos}.` 
+            : `Panggilan untuk Ananda ${name}, silakan masuk ke ${pos}.`;
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'id-ID'; 
+        utterance.rate = 0.9;
+        utterance.volume = 1;
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // 3. POP-UP NOTIFIKASI (Jika layar mati)
+    if (document.hidden && Notification.permission === "granted") {
+        const title = status === 'bersiap' ? "⚠️ PERSIAPAN!" : "📢 MASUK SEKARANG!";
+        const body = `Giliran: ${name}`;
+        new Notification(title, { body, icon: "/icon.png", tag: "antrian-sekolah" });
     }
   };
 
@@ -191,11 +209,10 @@ export default function AppRapor() {
     return (
       <div className={`min-h-screen p-6 font-sans text-slate-800 ${isSekolah ? 'bg-gradient-to-br from-blue-50 to-indigo-100' : 'bg-gradient-to-br from-indigo-50 to-purple-100'}`}>
         <div className="max-w-lg mx-auto">
-          {/* Header Navigasi Guru */}
           <div className="flex flex-wrap justify-between items-center mb-6 bg-white/60 backdrop-blur-md p-3 rounded-2xl shadow-sm border border-white/40 gap-2">
             <div className="flex gap-2">
-                <button onClick={handleGantiKelas} className="text-slate-600 hover:text-blue-600 text-xs font-bold bg-white px-3 py-2 rounded-xl shadow-sm">← Kelas</button>
-                <button onClick={handleMenuUtama} className="text-red-500 hover:text-red-700 text-xs font-bold bg-white px-3 py-2 rounded-xl shadow-sm">🏠 Menu</button>
+                <button onClick={handleGantiKelas} className="text-slate-600 hover:text-blue-600 text-xs font-bold bg-white px-3 py-2 rounded-xl shadow-sm border border-slate-200">← Kelas</button>
+                <button onClick={handleMenuUtama} className="text-red-500 hover:text-red-700 text-xs font-bold bg-white px-3 py-2 rounded-xl shadow-sm border border-slate-200">🏠 Menu</button>
             </div>
             <span className={`text-xs px-3 py-1 rounded-full font-bold text-white shadow-lg ${isSekolah ? 'bg-blue-600' : 'bg-indigo-600'}`}>{isSekolah ? "POS 1: SEKOLAH" : "POS 2: ASRAMA"}</span>
           </div>
@@ -297,7 +314,7 @@ function MenuAwal({ setRole, saveState }) {
         </div>
         <button onClick={() => handleMenuClick("MONITOR")} className="flex items-center justify-center gap-3 p-4 bg-slate-800 text-slate-200 rounded-2xl font-bold text-sm hover:bg-slate-900 transition shadow-lg"><span>📊</span> Lihat Rekapitulasi Data</button>
       </div>
-      <p className="mt-12 text-xs text-slate-300 font-medium">v3.1 • Navigasi Lengkap</p>
+      <p className="mt-12 text-xs text-slate-300 font-medium">v3.3 • Audio Fix & UI Fix</p>
     </div>
   );
 }
@@ -339,9 +356,14 @@ function MenuKelas({ setJenjang, setKelas, setRole, saveState, handleMenuUtama }
   );
 }
 
-// --- FIX: BUTTON MENUMPUK DI SINI ---
 function TampilanOrtu({ activeCall, jenjang, kelas, handleGantiKelas, handleMenuUtama }) {
   let bgClass = "bg-slate-50"; let cardClass = "bg-white border-slate-100"; let textClass = "text-slate-800"; let statusBadge = "bg-slate-100 text-slate-400"; let labelStatus = "MENUNGGU"; let subText = "Silakan duduk menunggu giliran Anda";
+  
+  // FIX: STYLE TOMBOL DINAMIS (IDLE vs COLOR)
+  const isIdle = activeCall.status === 'idle';
+  const btnStyle = isIdle 
+    ? "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 shadow-sm" // Style Dark (untuk background putih)
+    : "bg-white/20 text-white border border-white/20 hover:bg-white/30 backdrop-blur-md shadow-sm"; // Style Light Glass (untuk background warna)
 
   if (activeCall.status === "bersiap") {
     bgClass = "bg-amber-400"; 
@@ -352,33 +374,17 @@ function TampilanOrtu({ activeCall, jenjang, kelas, handleGantiKelas, handleMenu
   }
 
   return (
-    // FIX: Hapus absolute, ganti jadi flex-col dengan header terpisah di atas
     <div className={`min-h-screen flex flex-col p-4 transition-colors duration-700 font-sans ${bgClass}`}>
-      
-      {/* Header Navigasi (Relatif, tidak menumpuk) */}
       <div className="w-full max-w-xl mx-auto flex justify-between items-start z-20 mb-4">
         <div className="flex flex-wrap gap-2">
-            <button onClick={handleGantiKelas} className="text-xs bg-white/20 backdrop-blur-md px-4 py-2 rounded-full text-white/90 hover:bg-white/30 font-bold transition shadow-sm border border-white/10">← Ganti Kelas</button>
-            <button onClick={handleMenuUtama} className="text-xs bg-red-500/20 backdrop-blur-md px-4 py-2 rounded-full text-red-100 hover:bg-red-500/40 font-bold transition shadow-sm border border-white/10">🏠 Menu</button>
+            {/* Menggunakan variable btnStyle agar warna menyesuaikan background */}
+            <button onClick={handleGantiKelas} className={`text-xs px-4 py-2 rounded-full font-bold transition ${btnStyle}`}>← Ganti Kelas</button>
+            <button onClick={handleMenuUtama} className={`text-xs px-4 py-2 rounded-full font-bold transition ${btnStyle} ${isIdle ? 'text-red-500 border-red-100 hover:bg-red-50' : 'text-red-100 hover:bg-red-500/40'}`}>🏠 Menu</button>
         </div>
       </div>
-
-      {/* Konten Utama (Centered) */}
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-xl mx-auto -mt-10">
-          
-          {/* Badge Panggilan Sekolah */}
-          {activeCall.status !== 'idle' && (
-             <div className="mb-8">
-                <span className="bg-black/20 backdrop-blur-md text-white/90 px-6 py-2 rounded-full text-sm font-bold tracking-widest uppercase shadow-lg border border-white/10">
-                    Panggilan Sekolah
-                </span>
-             </div>
-          )}
-
-          <h2 className={`text-sm font-bold mb-8 uppercase tracking-[0.3em] opacity-80 ${activeCall.status === 'idle' ? 'text-slate-400' : 'text-white'}`}>
-            Antrian {jenjang} • {kelas}
-          </h2>
-          
+          {activeCall.status !== 'idle' && (<div className="mb-8"><span className="bg-black/20 backdrop-blur-md text-white/90 px-6 py-2 rounded-full text-sm font-bold tracking-widest uppercase shadow-lg border border-white/10">Panggilan Sekolah</span></div>)}
+          <h2 className={`text-sm font-bold mb-8 uppercase tracking-[0.3em] opacity-80 ${activeCall.status === 'idle' ? 'text-slate-400' : 'text-white'}`}>Antrian {jenjang} • {kelas}</h2>
           <div className={`p-12 rounded-[2.5rem] w-full transition-all duration-500 text-center ${cardClass} ${activeCall.status === 'idle' ? 'shadow-xl shadow-slate-200' : ''}`}>
             <p className="text-slate-400 text-xs font-bold mb-4 uppercase tracking-widest">Giliran Siswa:</p>
             <h1 className={`text-5xl md:text-7xl font-black mb-8 leading-tight break-words tracking-tight ${textClass}`}>{activeCall.nama}</h1>
